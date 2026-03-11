@@ -16,6 +16,8 @@ def batch_sigmoid_bce_loss(inputs, targets):
     Returns:
         Tensor: Loss of shape (n_queries, n_gts).
     """
+    inputs = inputs.float()
+    targets = targets.float()
     pos = F.binary_cross_entropy_with_logits(
         inputs, torch.ones_like(inputs), reduction='none')
     neg = F.binary_cross_entropy_with_logits(
@@ -36,6 +38,8 @@ def batch_dice_loss(inputs, targets):
     Returns:
         Tensor: Loss of shape (n_queries, n_gts).
     """
+    inputs = inputs.float()
+    targets = targets.float()
     inputs = inputs.sigmoid()
     numerator = 2 * torch.einsum('nc,mc->nm', inputs, targets)
     denominator = inputs.sum(-1)[:, None] + targets.sum(-1)[None, :]
@@ -981,6 +985,8 @@ class HungarianMatcher:
         for cost in self.costs:
             cost_values.append(cost(pred_instances, gt_instances))  #QueryClassificationCost, MaskBCECost, MaskDiceCost
         cost_value = torch.stack(cost_values).sum(dim=0)
+        # Replace NaN/Inf with large finite value to avoid "cost matrix is infeasible"
+        cost_value = torch.nan_to_num(cost_value, nan=1e6, posinf=1e6, neginf=1e6)
         query_ids, object_ids = linear_sum_assignment(cost_value.cpu().numpy())
         return labels.new_tensor(query_ids), labels.new_tensor(object_ids)
 

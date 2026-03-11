@@ -7,6 +7,7 @@ import MinkowskiEngine as ME
 from mmdet3d.registry import MODELS
 from mmdet3d.structures import PointData
 from mmdet3d.models import Base3DDetector
+from mmengine.logging import MessageHub
 from .mask_matrix_nms import mask_matrix_nms
 import open3d as o3d
 import os
@@ -775,7 +776,7 @@ class ForAINetV2OneFormer3D(Base3DDetector):
                 pc3_semantic_gt = pts_semantic_gt[originids]
                 pc3_instance_gt = pts_instance_gt[originids]
                 # Save each pc3 to a separate .ply file
-                #region_dir = f"work_dirs/oneformer3d_radius20_e2039_test_bm2/{current_filename}/region_{region_idx}"
+                #region_dir = f"/workspace/work_dirs/oneformer3d_radius20_e2039_test_bm2/{current_filename}/region_{region_idx}"
                 #region_ply_path = os.path.join(region_dir, "pc_ins_sem.ply")
                 #self.save_ply(pc3.cpu().numpy(), results_list[0].pts_semantic_mask[0], results_list[0].pts_instance_mask[1], region_ply_path, pc3_semantic_gt, pc3_instance_gt)
 
@@ -810,7 +811,7 @@ class ForAINetV2OneFormer3D(Base3DDetector):
                     unique_best_masks.append((mask_points, instance_id, score))
 
             # Save the best masks
-            #best_mask_dir = f"work_dirs/oneformer3d_radius16_qp300_e2675_test_bm1_austrian/{current_filename}/best_masks_before_block_merge"
+            #best_mask_dir = f"/workspace/work_dirs/oneformer3d_radius16_qp300_e2675_test_bm1_austrian/{current_filename}/best_masks_before_block_merge"
             #os.makedirs(best_mask_dir, exist_ok=True)
             #for mask_points, instance_id, score in unique_best_masks:
             #    mask_file_path = os.path.join(best_mask_dir, f"best_mask_{instance_id}_{score}.ply")
@@ -821,7 +822,7 @@ class ForAINetV2OneFormer3D(Base3DDetector):
             clean_all_pre_ins, merged_masks = self.merge_overlapping_instances_by_score(all_pre_ins, unique_best_masks)
 
             # Save the masks after block merge
-            #best_mask_after_merge_dir = f"work_dirs/oneformer3d_radius16_qp300_e2675_test_bm1_austrian/{current_filename}/best_masks_after_block_merge"
+            #best_mask_after_merge_dir = f"/workspace/work_dirs/oneformer3d_radius16_qp300_e2675_test_bm1_austrian/{current_filename}/best_masks_after_block_merge"
             #os.makedirs(best_mask_after_merge_dir, exist_ok=True)
             #for mask_points, instance_id, score in merged_masks:
             #    mask_file_path = os.path.join(best_mask_after_merge_dir, f"best_mask_{instance_id}_{score}.ply")
@@ -835,7 +836,7 @@ class ForAINetV2OneFormer3D(Base3DDetector):
             clean_all_pre_ins = np.vectorize(relabel_map.get)(clean_all_pre_ins)
 
             # Save the final combined results
-            region_path = f"work_dirs/oneformer3d_radius16_qp300_e2675_test_bm1_austrian/{current_filename}_final_results.ply"
+            region_path = f"./work_dirs/oneformer3d_radius16_qp300_e2675_test_bm1_austrian/{current_filename}_final_results.ply"
             self.save_ply_withscore(original_points.cpu().numpy(), final_semantic_labels, clean_all_pre_ins, global_instance_scores, region_path, pts_semantic_gt, pts_instance_gt)
             
             for i, data_sample in enumerate(batch_data_samples):
@@ -1967,7 +1968,10 @@ class ForAINetV2OneFormer3D_XAwarequery(Base3DDetector):
         queries_idx = []
 
         if self.prepare_epoch:
-            if kwargs['epoch'] > self.prepare_epoch:
+            # Get epoch from MessageHub (mmengine no longer passes epoch via kwargs)
+            message_hub = MessageHub.get_current_instance()
+            current_epoch = message_hub.get_info('epoch', 0)
+            if current_epoch > self.prepare_epoch:
                 total_qscore_loss = 0
                 for i in range(batch_size):
                     voxel_superpoints = inverse_mapping[coordinates[:, 0][inverse_mapping] == i]
@@ -2120,7 +2124,7 @@ class ForAINetV2OneFormer3D_XAwarequery(Base3DDetector):
             # Initialize an empty set to store the covered instance labels
             covered_instance_labels_qp = set()
 
-            output_path = "work_dirs/oneformer3d_outputfolder"
+            output_path = "./work_dirs/oneformer3d_outputfolder"
             for region_idx, region in enumerate(tqdm(regions, desc="Processing regions")):
                 region_mask = ((original_points[:, 0] - region[0]) ** 2 + (original_points[:, 1] - region[1]) ** 2) <= self.radius ** 2
                 pc1 = original_points[region_mask]
@@ -2289,9 +2293,9 @@ class ForAINetV2OneFormer3D_XAwarequery(Base3DDetector):
 
             all_instance_labels = set(np.unique(pts_instance_gt))
             
-            ##########output_path = "work_dirs/bluepoint_th04fixed_03_priority_test_tobedelete"
-            #########output_path = "work_dirs/bluepoint_forinstancev2"
-            output_path = self.test_cfg.get('output_dir', 'work_dirs/default_output')
+            ##########output_path = "/workspace/work_dirs/bluepoint_th04fixed_03_priority_test_tobedelete"
+            #########output_path = "/workspace/work_dirs/bluepoint_forinstancev2"
+            output_path = "./work_dirs/V3"
             score_th1 = self.score_th
             score_th2 = 0.3
             t2 = time.time()   
@@ -2419,22 +2423,8 @@ class ForAINetV2OneFormer3D_XAwarequery(Base3DDetector):
                         scores_kept = torch.as_tensor(scores, device=pc3.device)[keep]   # (K,)
 
                         # ② voxel → pc1   (K, N_pc1)  → COO
-                        rows_list = []
-                        cols_list = []
-                        max_chunk = (torch.iinfo(torch.int32).max // masks_kept.shape[0]) - 1_000_000
-                        max_chunk = max(1, max_chunk)
-                        chunk_size = min(nn_idx_pc1.shape[0], max_chunk)
-
-                        for start in range(0, nn_idx_pc1.shape[0], chunk_size):
-                            end = min(start + chunk_size, nn_idx_pc1.shape[0])
-                            mk_bool_chunk = masks_kept[:, nn_idx_pc1[start:end]]
-                            rows_chunk, cols_chunk = mk_bool_chunk.nonzero(as_tuple=True)
-                            cols_chunk = cols_chunk + start
-                            rows_list.append(rows_chunk)
-                            cols_list.append(cols_chunk)
-
-                        rows = torch.cat(rows_list, dim=0)
-                        cols = torch.cat(cols_list, dim=0)     
+                        mk_bool = masks_kept[:, nn_idx_pc1]             # bool
+                        rows, cols = mk_bool.nonzero(as_tuple=True)     
                         score_per_hit = scores_kept[rows]               # (nnz,)
 
                         N1 = pc1.shape[0]
@@ -2496,7 +2486,7 @@ class ForAINetV2OneFormer3D_XAwarequery(Base3DDetector):
                     pc3_semantic_gt = pts_semantic_gt[originids]
                     pc3_instance_gt = pts_instance_gt[originids]
                     # Save each pc3 to a separate .ply file
-                    region_dir = f"work_dirs/to_be_delete/{current_filename}/region_0"
+                    region_dir = f"/workspace/work_dirs/to_be_delete/{current_filename}/region_0"
                     region_dir = os.path.join(output_path, current_filename, f"region_0")
                     region_ply_path = os.path.join(region_dir, "pc_ins_sem.ply")
                     self.save_ply(pc3.cpu().numpy(), results_list[0].pts_semantic_mask[0], results_list[0].pts_instance_mask[1], region_ply_path, pc3_semantic_gt, pc3_instance_gt)
@@ -4924,3 +4914,296 @@ class InstanceOnlyOneFormer3D(Base3DDetector):
                 instance_labels=labels,
                 instance_scores=scores)
         ]
+
+
+@MODELS.register_module()
+class ForAINetV2OneFormer3D_PTV3(ForAINetV2OneFormer3D):
+    """
+    ForAINetV2OneFormer3D with Point Transformer V3 backbone.
+    
+    This class replaces the SpConvUNet backbone with PTV3 while maintaining
+    the same decoder and loss structure.
+    
+    Key differences from ForAINetV2OneFormer3D:
+    1. Uses PTV3Backbone instead of SpConvUNet
+    2. No separate input_conv and output_layer (handled by PTV3)
+    3. Uses grid_size for voxelization instead of voxel_size
+    
+    Args:
+        in_channels (int): Number of input feature channels.
+        num_channels (int): Number of output feature channels from backbone.
+        grid_size (float): Grid size for voxelization. Default: 0.02
+        num_classes (int): Number of classes.
+        min_spatial_shape (int): Minimal shape for spconv tensor.
+        stuff_classes (list): List of stuff class indices.
+        thing_cls (list): List of thing class indices.
+        backbone (ConfigDict): Config dict of the PTV3 backbone.
+        decoder (ConfigDict): Config dict of the decoder.
+        criterion (ConfigDict): Config dict of the criterion.
+        train_cfg (dict, optional): Config dict of training hyper-parameters.
+        test_cfg (dict, optional): Config dict of test hyper-parameters.
+        data_preprocessor (dict or ConfigDict, optional): The pre-process config.
+        init_cfg (dict or ConfigDict, optional): The config to control initialization.
+        radius (int): Radius for cylinder crop during inference.
+    """
+
+    def __init__(self,
+                 in_channels,
+                 num_channels,
+                 grid_size=0.02,
+                 num_classes=3,
+                 min_spatial_shape=128,
+                 stuff_classes=[0],
+                 thing_cls=[1, 2],
+                 backbone=None,
+                 decoder=None,
+                 criterion=None,
+                 train_cfg=None,
+                 test_cfg=None,
+                 data_preprocessor=None,
+                 init_cfg=None,
+                 radius=16):
+        # Don't call parent __init__, we handle initialization ourselves
+        Base3DDetector.__init__(
+            self, data_preprocessor=data_preprocessor, init_cfg=init_cfg)
+        
+        # Build PTV3 backbone
+        self.backbone = MODELS.build(backbone)
+        self.decoder = MODELS.build(decoder)
+        self.criterion = MODELS.build(criterion)
+        
+        self.in_channels = in_channels
+        self.num_channels = num_channels
+        self.grid_size = grid_size
+        self.num_classes = num_classes
+        self.min_spatial_shape = min_spatial_shape
+        self.stuff_classes = stuff_classes
+        self.thing_cls = thing_cls
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        self.radius = radius
+
+    def extract_feat(self, x):
+        """Extract features from sparse tensor using PTV3.
+
+        Args:
+            x (SparseTensor): Input sparse tensor of shape
+                (n_points, in_channels).
+
+        Returns:
+            List[Tensor]: of len batch_size,
+                each of shape (n_points_i, n_channels).
+        """
+        # PTV3Backbone handles everything and returns list of features per batch
+        return self.backbone(x)
+
+    def collate(self, points, elastic_points=None):
+        """Collate batch of points to sparse tensor.
+        
+        Uses grid_size instead of voxel_size for voxelization.
+
+        Args:
+            points (List[Tensor]): Batch of points.
+            elastic_points (List[Tensor], optional): Elastic deformed points.
+
+        Returns:
+            Tuple: (coordinates, features, inverse_mapping, spatial_shape)
+        """
+        if elastic_points is None:
+            coordinates, features = ME.utils.batch_sparse_collate(
+                [((p[:, :3] - p[:, :3].min(0)[0]) / self.grid_size,
+                  torch.hstack((p[:, 3:], p[:, :3] - p[:, :3].mean(0))))
+                 for p in points])
+        else:
+            coordinates, features = ME.utils.batch_sparse_collate(
+                [((el_p - el_p.min(0)[0]),
+                  torch.hstack((p[:, 3:], p[:, :3] - p[:, :3].mean(0))))
+                 for el_p, p in zip(elastic_points, points)])
+
+        spatial_shape = torch.clip(
+            coordinates.max(0)[0][1:] + 1, self.min_spatial_shape)
+        field = ME.TensorField(features=features, coordinates=coordinates)
+        tensor = field.sparse()
+        coordinates = tensor.coordinates
+        features = tensor.features
+        inverse_mapping = field.inverse_mapping(tensor.coordinate_map_key)
+
+        return coordinates, features, inverse_mapping, spatial_shape
+
+    def loss(self, batch_inputs_dict, batch_data_samples, **kwargs):
+        """Calculate losses from a batch of inputs dict and data samples.
+
+        Args:
+            batch_inputs_dict (dict): The model input dict which include
+                `points` key.
+            batch_data_samples (List[:obj:`Det3DDataSample`]): The Data
+                Samples. It includes information such as
+                `gt_instances_3d` and `gt_sem_seg_3d`.
+        Returns:
+            dict: A dictionary of loss components.
+        """
+        coordinates, features, inverse_mapping, spatial_shape = self.collate(
+            batch_inputs_dict['points'],
+            batch_inputs_dict.get('elastic_coords', None))   
+        x = spconv.SparseConvTensor(
+            features, coordinates, spatial_shape, len(batch_data_samples))  
+
+        x = self.extract_feat(x)  
+
+        x = self.decoder(x)  
+
+        sp_gt_instances = []
+        for i in range(len(batch_data_samples)):
+            voxel_superpoints = inverse_mapping[coordinates[:, 0][ \
+                                                        inverse_mapping] == i] 
+            voxel_superpoints = torch.unique(voxel_superpoints,  
+                                             return_inverse=True)[1]
+            inst_mask = batch_data_samples[i].gt_pts_seg.pts_instance_mask 
+            sem_mask = batch_data_samples[i].gt_pts_seg.pts_semantic_mask 
+            assert voxel_superpoints.shape == inst_mask.shape
+
+            batch_data_samples[i].gt_instances_3d.sp_sem_masks = \
+                                self.get_gt_semantic_masks(sem_mask,
+                                                            voxel_superpoints,
+                                                            self.num_classes)  
+            batch_data_samples[i].gt_instances_3d.sp_inst_masks = \
+                                self.get_gt_inst_masks(inst_mask,
+                                                       voxel_superpoints)    
+            
+            batch_data_samples[i].gt_instances_3d.labels_3d, batch_data_samples[i].gt_instances_3d.sp_inst_masks, batch_data_samples[i].gt_instances_3d.ratio_inspoint = \
+                                self.filter_stuff_masks(batch_data_samples[i].gt_instances_3d, self.stuff_classes, batch_data_samples[i].gt_pts_seg.ratio_inspoint)
+
+            sp_gt_instances.append(batch_data_samples[i].gt_instances_3d)  
+
+        loss = self.criterion(x, sp_gt_instances)
+        return loss
+
+
+@MODELS.register_module()
+class ForAINetV2OneFormer3D_LitePT(ForAINetV2OneFormer3D_PTV3):
+    """
+    ForAINetV2OneFormer3D with LitePT backbone.
+    Inherits from PTV3 version as the interface and logic are identical,
+    just using a different backbone class which is handled by configuration.
+    """
+    pass
+
+    def predict(self, batch_inputs_dict, batch_data_samples, **kwargs):
+        """Predict results from a batch of inputs and data samples.
+        
+        Args:
+            batch_inputs_dict (dict): The model input dict which include
+                `points` key.
+            batch_data_samples (List[:obj:`Det3DDataSample`]): The Data
+                Samples.
+        Returns:
+            list[:obj:`Det3DDataSample`]: Detection results.
+        """
+        lidar_path = batch_data_samples[0].lidar_path
+        base_name = os.path.basename(lidar_path)
+        current_filename = os.path.splitext(base_name)[0]
+        
+        if 'test' in lidar_path:
+            # Test mode - use sliding window inference
+            step_size = self.radius
+            num_points = 640000
+            pts_semantic_gt = batch_data_samples[0].eval_ann_info['pts_semantic_mask']
+            pts_instance_gt = batch_data_samples[0].eval_ann_info['pts_instance_mask']
+            original_points = batch_inputs_dict['points'][0]
+            regions = self.generate_cylindrical_regions(original_points, self.radius, step_size)
+            all_pre_sem = [list() for _ in range(original_points.shape[0])]
+            all_pre_ins = np.full(original_points.shape[0], -1)
+            max_instance = 0
+
+            global_instance_scores = np.zeros((original_points.shape[0],), dtype=float) 
+            best_masks = []
+
+            for region_idx, region in enumerate(tqdm(regions, desc="Processing regions")):
+                region_mask = ((original_points[:, 0] - region[0]) ** 2 + (original_points[:, 1] - region[1]) ** 2) <= self.radius ** 2
+                pc1 = original_points[region_mask]
+                pc1_indices = torch.where(region_mask)[0]
+
+                if len(pc1) == 0:
+                    continue
+
+                pc2, pc2_indices = self.grid_sample(pc1, pc1_indices, self.grid_size)
+                if len(pc2) < num_points:
+                    pc3 = pc2
+                    pc3_indices = pc2_indices
+                elif len(pc2) > num_points:
+                    pc3, pc3_indices = self.points_random_sampling(pc2, pc2_indices, num_points)
+
+                coordinates, features, inverse_mapping2, spatial_shape = self.collate([pc3])
+                x = spconv.SparseConvTensor(features, coordinates, spatial_shape, len(batch_data_samples))
+                x = self.extract_feat(x)
+                x = self.decoder(x)
+                results_list = self.predict_by_feat_test(x, inverse_mapping2, pc3)
+                
+                masks = results_list[0].pts_instance_mask[0]
+                scores = results_list[0].instance_scores
+                valid_scores_mask = scores > 0.6
+                masks = masks[valid_scores_mask]
+                scores = scores[valid_scores_mask]
+
+                for mask, score in zip(masks, scores):
+                    mask_pc1 = self.nearest_neighbor_mapping(pc1, pc3, mask)
+                    mask_points = pc1_indices[mask_pc1].cpu().numpy()
+
+                    update_mask = score > global_instance_scores[mask_points]
+                    global_instance_scores[mask_points[update_mask]] = score
+                    all_pre_ins[mask_points[update_mask]] = max_instance
+
+                    if np.any(update_mask):
+                        best_masks.append((mask_points, max_instance, score))
+
+                    max_instance += 1
+
+                cylinder_current_semantic_pre = self.nearest_neighbor_mapping(pc1, pc3, results_list[0].pts_semantic_mask[0])
+                 
+                originids = torch.where(region_mask)[0].cpu().numpy()
+                all_pre_sem = self.vote_semantic_labels(all_pre_sem, originids, cylinder_current_semantic_pre)
+
+                originids = pc3_indices.cpu().numpy()
+
+            final_semantic_labels = self.finalize_semantic_labels(all_pre_sem)
+            ground_mask = (final_semantic_labels == 0)
+            all_pre_ins[ground_mask] = -1
+
+            unique_instances, instance_counts = np.unique(all_pre_ins, return_counts=True)
+            small_instances = unique_instances[instance_counts < 10]
+            for instance in small_instances:
+                all_pre_ins[all_pre_ins == instance] = -1
+
+            unique_best_masks = []
+            for mask_points, instance_id, score in best_masks:
+                if np.any(all_pre_ins[mask_points] == instance_id):
+                    unique_best_masks.append((mask_points, instance_id, score))
+
+            clean_all_pre_ins, merged_masks = self.merge_overlapping_instances_by_score(all_pre_ins, unique_best_masks)
+
+            unique_labels = np.unique(clean_all_pre_ins)
+            unique_labels = unique_labels[unique_labels >= 0]
+            relabel_map = {old_label: new_label for new_label, old_label in enumerate(unique_labels)}
+            relabel_map[-1] = -1
+            clean_all_pre_ins = np.vectorize(relabel_map.get)(clean_all_pre_ins)
+
+            for i, data_sample in enumerate(batch_data_samples):
+                data_sample.pred_pts_seg = results_list[i]
+                data_sample.pred_pts_seg['originids'] = originids
+            return batch_data_samples
+        else:
+            # Val mode - single pass inference
+            coordinates, features, inverse_mapping, spatial_shape = self.collate(
+                batch_inputs_dict['points'])
+            x = spconv.SparseConvTensor(
+                features, coordinates, spatial_shape, len(batch_data_samples))
+
+            x = self.extract_feat(x)
+            x = self.decoder(x)
+
+            results_list = self.predict_by_feat(x, inverse_mapping)
+
+            for i, data_sample in enumerate(batch_data_samples):
+                data_sample.pred_pts_seg = results_list[i]
+
+            return batch_data_samples

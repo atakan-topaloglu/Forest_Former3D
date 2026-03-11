@@ -615,7 +615,8 @@ class ForAINetv2QueryDecoder_XAwarequery(BaseModule):
             nn.Linear(d_model, d_model))
         self.iter_pred = iter_pred
         self.attn_mask = attn_mask
-    
+        self.num_queries = num_instance_queries + num_semantic_queries
+
     def _get_queries(self, queries=None, batch_size=None):
         """Get query tensor.
 
@@ -633,9 +634,10 @@ class ForAINetv2QueryDecoder_XAwarequery(BaseModule):
         
         result_queries = []
 
-        for i in range(batch_size):
-            if len(queries[i]) != 0:
-                device = queries[i].device
+        if queries is not None:
+            for i in range(batch_size):
+                if len(queries[i]) != 0:
+                    device = queries[i].device
 
         for i in range(batch_size):
             result_query = []

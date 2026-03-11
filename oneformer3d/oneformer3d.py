@@ -4029,7 +4029,41 @@ class ForAINetV2OneFormer3D_XAwarequery(Base3DDetector):
             taken_flag[pts_idx]             = True
 
         return merged_instance_labels, kept_masks, merged_instance_scores
-        
+
+
+@MODELS.register_module()
+class ForAINetV2OneFormer3D_XAwarequery_PTV3(ForAINetV2OneFormer3D_XAwarequery):
+    """ForAINetV2OneFormer3D_XAwarequery with PTV3 backbone.
+
+    Identical to ForAINetV2OneFormer3D_XAwarequery except the backbone is
+    PTV3Backbone instead of SpConvUNet. Enables fair backbone-only comparison.
+    """
+
+    def _init_layers(self, in_channels, num_channels):
+        # Transformer backbone handles full pipeline; no input_conv/output_layer
+        pass
+
+    def extract_feat(self, x):
+        """Extract features using PTV3 backbone (built as self.unet)."""
+        return self.unet(x)
+
+
+@MODELS.register_module()
+class ForAINetV2OneFormer3D_XAwarequery_LitePT(ForAINetV2OneFormer3D_XAwarequery):
+    """ForAINetV2OneFormer3D_XAwarequery with LitePT backbone.
+
+    Identical to ForAINetV2OneFormer3D_XAwarequery except the backbone is
+    LitePTBackbone instead of SpConvUNet. Enables fair backbone-only comparison.
+    """
+
+    def _init_layers(self, in_channels, num_channels):
+        # Transformer backbone handles full pipeline; no input_conv/output_layer
+        pass
+
+    def extract_feat(self, x):
+        """Extract features using LitePT backbone (built as self.unet)."""
+        return self.unet(x)
+
 
 @MODELS.register_module()
 class ScanNet200OneFormer3D(ScanNetOneFormer3DMixin, Base3DDetector):

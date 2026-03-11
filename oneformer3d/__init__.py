@@ -1,5 +1,7 @@
 from .oneformer3d import (
-    ForAINetV2OneFormer3D, ForAINetV2OneFormer3D_XAwarequery, ForAINetV2OneFormer3D_PTV3, ForAINetV2OneFormer3D_LitePT)
+    ForAINetV2OneFormer3D, ForAINetV2OneFormer3D_XAwarequery,
+    ForAINetV2OneFormer3D_XAwarequery_PTV3, ForAINetV2OneFormer3D_XAwarequery_LitePT,
+    ForAINetV2OneFormer3D_PTV3, ForAINetV2OneFormer3D_LitePT)
 from .spconv_unet import SpConvUNet
 from .mink_unet import Res16UNet34C
 from .query_decoder import ScanNetQueryDecoder, QueryDecoder, ForAINetv2QueryDecoder, ForAINetv2QueryDecoder_XAwarequery

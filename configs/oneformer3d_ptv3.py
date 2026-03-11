@@ -1,7 +1,18 @@
 """
-ForestFormer LitePT - Training from Scratch (Full Dataset)
+ForestFormer with Point Transformer V3 Backbone Configuration
 
-This config trains ForestFormer with LitePT backbone from scratch.
+This config replaces the SpConvUNet backbone with PTV3 for ForAINetV2 dataset.
+
+Key Design Choices:
+1. Input channels: 6 (centered_xyz + zero padding for pretrained weight compatibility)
+2. Output channels: 64 (PTV3's dec_channels[0])
+3. Grid size: 0.02 (from PTV3 config)
+4. PDNorm: Disabled by default (pdnorm_bn=False, pdnorm_ln=False)
+5. Flash Attention: Enabled for efficiency
+6. Serialization: Default orders (z, z-trans, hilbert, hilbert-trans)
+
+Usage:
+    python tools/train.py configs/oneformer3d_ptv3.py
 """
 
 _base_ = [
@@ -10,14 +21,14 @@ _base_ = [
 custom_imports = dict(imports=['oneformer3d'])
 
 # Model settings
-num_channels = 72  # LitePT default output channels
+num_channels = 64  # PTV3 output channels (dec_channels[0])
 num_instance_classes = 3
 num_semantic_classes = 3
 radius = 12
-grid_size = 0.2  # Matches PTV3 config
+grid_size = 0.2  # PTV3 voxel size
 
 model = dict(
-    type='ForAINetV2OneFormer3D_LitePT',
+    type='ForAINetV2OneFormer3D_PTV3',
     data_preprocessor=dict(type='Det3DDataPreprocessor'),
     in_channels=3,  # Input feature channels (xyz centered coords)
     num_channels=num_channels,
@@ -28,26 +39,27 @@ model = dict(
     thing_cls=[1, 2],
     radius=radius,
     backbone=dict(
-        type='PT-v3m1-gridpool-xcpe-xattn-rope-pretrain',
-        in_channels=3,  # 3D input (xyz) different from https://github.com/prs-eth/LitePT/blob/main/configs/scannet200/insseg-litept-small-v1m2.py 
+        type='PTV3Backbone',
+        in_channels=3,  # Will be zero-padded to 6 internally
         grid_size=grid_size,
-        # LitePT-Small configuration
+        out_channels=num_channels,
+        # Pretrained weights (set path to load pretrained PTV3 weights)
+        # Example: pretrained='path/to/ptv3_scannet.pth'
+        pretrained=None,
+        # Serialization settings
         order=("z", "z-trans", "hilbert", "hilbert-trans"),
         stride=(2, 2, 2, 2),
+        # Encoder settings
         enc_depths=(2, 2, 2, 6, 2),
-        enc_channels=(36, 72, 144, 252, 504),
-        enc_num_head=(2, 4, 8, 14, 28),
+        enc_channels=(32, 64, 128, 256, 512),
+        enc_num_head=(2, 4, 8, 16, 32),
         enc_patch_size=(1024, 1024, 1024, 1024, 1024),
-        enc_cpe=(True, True, True, False, False),
-        enc_attn=(False, False, False, True, True),
-        enc_rope_freq=(100.0, 100.0, 100.0, 100.0, 100.0),
+        # Decoder settings
         dec_depths=(2, 2, 2, 2),
-        dec_channels=(72, 72, 144, 252),
-        dec_num_head=(4, 4, 8, 14),
+        dec_channels=(64, 64, 128, 256),  # First value = out_channels
+        dec_num_head=(4, 4, 8, 16),
         dec_patch_size=(1024, 1024, 1024, 1024),
-        dec_cpe=(True, True, True, False),
-        dec_attn=(False, False, False, True),
-        dec_rope_freq=(100.0, 100.0, 100.0, 100.0),
+        # Transformer settings
         mlp_ratio=4,
         qkv_bias=True,
         qk_scale=None,
@@ -56,7 +68,20 @@ model = dict(
         drop_path=0.3,
         pre_norm=True,
         shuffle_orders=True,
-        enc_mode=False,
+        # Attention settings
+        enable_rpe=False,
+        enable_flash=True,
+        upcast_attention=False,
+        upcast_softmax=False,
+        # PDNorm settings
+        # NOTE: Set pdnorm_bn=False and pdnorm_ln=False when using pretrained weights
+        # The pretrained checkpoint was trained without PDNorm
+        pdnorm_bn=False,
+        pdnorm_ln=False,  # Disabled for pretrained weight compatibility
+        pdnorm_decouple=True,
+        pdnorm_adaptive=False,
+        pdnorm_affine=True,
+        pdnorm_conditions=("ForAINet",),
     ),
     decoder=dict(
         type='ForAINetv2QueryDecoder_XAwarequery',
@@ -65,7 +90,7 @@ model = dict(
         num_instance_queries=300,
         num_semantic_queries=num_semantic_classes,
         num_instance_classes=num_instance_classes,
-        in_channels=num_channels,
+        in_channels=num_channels,  # Match backbone output: 64
         d_model=256,
         num_heads=8,
         hidden_dim=1024,
@@ -130,7 +155,7 @@ train_pipeline = [
         with_mask_3d=True,
         with_seg_3d=True),
     dict(type='CylinderCrop', radius=radius),
-    dict(type='GridSample', grid_size=grid_size),  # Use LitePT grid_size
+    dict(type='GridSample', grid_size=grid_size),  # Use PTV3 grid_size
     dict(
         type='PointSample_',
         num_points=320000),
@@ -169,7 +194,7 @@ val_pipeline = [
         with_mask_3d=True,
         with_seg_3d=True),
     dict(type='CylinderCrop', radius=radius),
-    dict(type='GridSample', grid_size=grid_size),  # Use LitePT grid_size
+    dict(type='GridSample', grid_size=grid_size),  # Use PTV3 grid_size
     dict(
         type='PointSample_',
         num_points=320000),
@@ -196,11 +221,10 @@ test_pipeline = [
 
 # Dataloader settings
 train_dataloader = dict(
-    batch_size=2,
-    num_workers=4,
+    batch_size=1,
+    num_workers=6,
     persistent_workers=True,
     pin_memory=True,
-    prefetch_factor=2,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
         type=dataset_type,
@@ -258,22 +282,24 @@ test_evaluator = val_evaluator
 
 # Optimizer settings
 optim_wrapper = dict(
-    type='AmpOptimWrapper',
-    loss_scale='dynamic',
+    type='OptimWrapper',
     optimizer=dict(type='AdamW', lr=0.0001, weight_decay=0.05),
     clip_grad=dict(max_norm=10, norm_type=2))
 
 # Learning rate scheduler
-param_scheduler = dict(type='PolyLR', begin=0, end=3000, power=0.9, by_epoch=True)
+param_scheduler = dict(type='PolyLR', begin=0, end=450000, power=0.9, by_epoch=False)
 
 # Hooks
 custom_hooks = [
     dict(type='EmptyCacheHook', after_iter=True),
+    # Fix spconv weight format for SpConvUNet during validation + checkpoint saving
+    # NOTE: PTV3Backbone is automatically skipped (doesn't have this issue)
+    # dict(type='SpConvWeightFixHook', verbose=False),
 ]
 default_hooks = dict(
     checkpoint=dict(
         type='CheckpointHook',
-        interval=200,
+        interval=100,
         max_keep_ckpts=3,
         save_optimizer=True),
     logger=dict(type='LoggerHook', interval=20),

@@ -1,51 +1,58 @@
 """
-ForestFormer LitePT - Training from Scratch (Full Dataset)
+ForestFormer XAwarequery with LitePT Backbone
 
-This config trains ForestFormer with LitePT backbone from scratch.
+Identical to oneformer3d_qs_radius16_qp300_2many.py (baseline) except backbone
+is swapped from SpConvUNet to LitePT. Enables fair backbone-only comparison.
 """
-
 _base_ = [
     'mmdet3d::_base_/default_runtime.py',
 ]
 custom_imports = dict(imports=['oneformer3d'])
 
-# Model settings
-num_channels = 72  # LitePT default output channels
+# model settings
+num_channels = 72  # LitePT output channels
 num_instance_classes = 3
 num_semantic_classes = 3
 radius = 12
-grid_size = 0.2  # Matches PTV3 config
+score_th = 0.4
+chunk = 20_000
+grid_size = 0.2
 
 model = dict(
-    type='ForAINetV2OneFormer3D_LitePT',
+    type='ForAINetV2OneFormer3D_XAwarequery_LitePT',
     data_preprocessor=dict(type='Det3DDataPreprocessor'),
-    in_channels=3,  # Input feature channels (xyz centered coords)
+    in_channels=3,
     num_channels=num_channels,
-    grid_size=grid_size,
+    voxel_size=0.2,
     num_classes=num_instance_classes,
     min_spatial_shape=128,
     stuff_classes=[0],
     thing_cls=[1, 2],
+    prepare_epoch=1000,
+    query_point_num=300,
     radius=radius,
+    score_th=score_th,
     backbone=dict(
-        type='PT-v3m1-gridpool-xcpe-xattn-rope-pretrain',
-        in_channels=3,  # 3D input (xyz) different from https://github.com/prs-eth/LitePT/blob/main/configs/scannet200/insseg-litept-small-v1m2.py 
+        type='LitePT',
+        in_channels=3,
+        out_channels=num_channels,
         grid_size=grid_size,
-        # LitePT-Small configuration
+        pretrained=None,
+        input_mode='zero_pad',
         order=("z", "z-trans", "hilbert", "hilbert-trans"),
         stride=(2, 2, 2, 2),
         enc_depths=(2, 2, 2, 6, 2),
         enc_channels=(36, 72, 144, 252, 504),
         enc_num_head=(2, 4, 8, 14, 28),
         enc_patch_size=(1024, 1024, 1024, 1024, 1024),
-        enc_cpe=(True, True, True, False, False),
+        enc_conv=(True, True, True, False, False),
         enc_attn=(False, False, False, True, True),
         enc_rope_freq=(100.0, 100.0, 100.0, 100.0, 100.0),
         dec_depths=(2, 2, 2, 2),
         dec_channels=(72, 72, 144, 252),
         dec_num_head=(4, 4, 8, 14),
         dec_patch_size=(1024, 1024, 1024, 1024),
-        dec_cpe=(True, True, True, False),
+        dec_conv=(True, True, True, False),
         dec_attn=(False, False, False, True),
         dec_rope_freq=(100.0, 100.0, 100.0, 100.0),
         mlp_ratio=4,
@@ -62,7 +69,7 @@ model = dict(
         type='ForAINetv2QueryDecoder_XAwarequery',
         num_layers=6,
         num_classes=1,
-        num_instance_queries=300,
+        num_instance_queries=0,
         num_semantic_queries=num_semantic_classes,
         num_instance_classes=num_instance_classes,
         in_channels=num_channels,
@@ -76,27 +83,24 @@ model = dict(
         fix_attention=True,
         objectness_flag=True),
     criterion=dict(
-        type='ForAINetv2UnifiedCriterion',
+        type='ForAINetv2UnifiedCriterion_XAwarequery',
         num_semantic_classes=num_semantic_classes,
         sem_criterion=dict(
             type='S3DISSemanticCriterion',
             loss_weight=0.2),
         inst_criterion=dict(
-            type='InstanceCriterionForAI',
+            type='InstanceCriterionForAI_OneToManyMatch',
             matcher=dict(
-                type='HungarianMatcher',
-                costs=[
-                    dict(type='MaskBCECost', weight=1.0),
-                    dict(type='MaskDiceCost', weight=1.0)]),
+                type='One2ManyMatcher'),
             loss_weight=[1.0, 1.0, 0.5],
             fix_dice_loss_weight=True,
             iter_matcher=True,
             fix_mean_loss=True)),
     train_cfg=dict(),
     test_cfg=dict(
-        topk_insts=250,
-        inst_score_thr=0.4,
-        pan_score_thr=0.4,
+        topk_insts=300,
+        inst_score_thr=0.0,
+        pan_score_thr=0.0,
         npoint_thr=10,
         obj_normalization=True,
         obj_normalization_thr=0.01,
@@ -107,7 +111,7 @@ model = dict(
         stuff_cls=[0],
         thing_cls=[0]))
 
-# Dataset settings
+# dataset settings
 dataset_type = 'ForAINetV2SegDataset_'
 data_root_forainetv2 = 'data/ForAINetV2/'
 data_prefix = dict(
@@ -130,10 +134,10 @@ train_pipeline = [
         with_mask_3d=True,
         with_seg_3d=True),
     dict(type='CylinderCrop', radius=radius),
-    dict(type='GridSample', grid_size=grid_size),  # Use LitePT grid_size
+    dict(type='GridSample', grid_size=0.2),
     dict(
         type='PointSample_',
-        num_points=320000),
+        num_points=640000),
     dict(type='SkipEmptyScene_'),
     dict(type='PointInstClassMapping_',
         num_classes=num_instance_classes),
@@ -151,7 +155,8 @@ train_pipeline = [
     dict(
         type='Pack3DDetInputs_',
         keys=[
-            'points', 'gt_labels_3d', 'pts_semantic_mask', 'pts_instance_mask', 'ratio_inspoint'
+            'points', 'gt_labels_3d', 'pts_semantic_mask', 'pts_instance_mask',
+            'ratio_inspoint', 'vote_label', 'instance_mask'
         ])
 ]
 val_pipeline = [
@@ -169,13 +174,14 @@ val_pipeline = [
         with_mask_3d=True,
         with_seg_3d=True),
     dict(type='CylinderCrop', radius=radius),
-    dict(type='GridSample', grid_size=grid_size),  # Use LitePT grid_size
+    dict(type='GridSample', grid_size=0.2),
     dict(
         type='PointSample_',
-        num_points=320000),
+        num_points=640000),
     dict(type='PointInstClassMapping_',
         num_classes=num_instance_classes),
-    dict(type='Pack3DDetInputs_', keys=['points', 'gt_labels_3d', 'pts_semantic_mask', 'pts_instance_mask'])
+    dict(type='Pack3DDetInputs_',
+        keys=['points', 'gt_labels_3d', 'pts_semantic_mask', 'pts_instance_mask', 'instance_mask'])
 ]
 test_pipeline = [
     dict(
@@ -191,16 +197,17 @@ test_pipeline = [
         with_label_3d=False,
         with_mask_3d=True,
         with_seg_3d=True),
-    dict(type='Pack3DDetInputs_', keys=['points', 'gt_labels_3d', 'pts_semantic_mask', 'pts_instance_mask'])
+    dict(type='Pack3DDetInputs_',
+        keys=['points', 'gt_labels_3d', 'pts_semantic_mask', 'pts_instance_mask', 'instance_mask'])
 ]
 
-# Dataloader settings
+# run settings
 train_dataloader = dict(
     batch_size=2,
-    num_workers=4,
-    persistent_workers=True,
+    num_workers=12,
+    prefetch_factor=10,
     pin_memory=True,
-    prefetch_factor=2,
+    persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
         type=dataset_type,
@@ -234,7 +241,6 @@ test_dataloader = dict(
         test_mode=True,
         backend_args=None))
 
-# Evaluation settings
 class_names = ['ground', 'wood', 'leaf']
 label2cat = {i: name for i, name in enumerate(class_names)}
 metric_meta = dict(
@@ -256,36 +262,28 @@ val_evaluator = dict(
     metric_meta=metric_meta)
 test_evaluator = val_evaluator
 
-# Optimizer settings
 optim_wrapper = dict(
-    type='AmpOptimWrapper',
-    loss_scale='dynamic',
+    type='OptimWrapper',
     optimizer=dict(type='AdamW', lr=0.0001, weight_decay=0.05),
     clip_grad=dict(max_norm=10, norm_type=2))
 
-# Learning rate scheduler
-param_scheduler = dict(type='PolyLR', begin=0, end=3000, power=0.9, by_epoch=True)
+param_scheduler = dict(type='PolyLR', begin=0, end=450000, power=0.9, by_epoch=False)
 
-# Hooks
-custom_hooks = [
-    dict(type='EmptyCacheHook', after_iter=True),
-]
+custom_hooks = [dict(type='EmptyCacheHook', after_iter=True)]
 default_hooks = dict(
     checkpoint=dict(
         type='CheckpointHook',
-        interval=200,
+        interval=1,
         max_keep_ckpts=3,
         save_optimizer=True),
     logger=dict(type='LoggerHook', interval=20),
     visualization=dict(type='Det3DVisualizationHook', draw=False))
 
-# Visualization
 vis_backends = [dict(type='LocalVisBackend'),
                 dict(type='TensorboardVisBackend')]
 visualizer = dict(
     type='Det3DLocalVisualizer', vis_backends=vis_backends, name='visualizer')
 
-# Training settings
 train_cfg = dict(
     type='EpochBasedTrainLoop',
     max_epochs=3000,

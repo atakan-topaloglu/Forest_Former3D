@@ -2566,15 +2566,11 @@ class ForAINetV2OneFormer3D_XAwarequery(Base3DDetector):
             
             t15 = time.time()                 
             ######print(f"postprocessing 9: {(t15 - t14)*1000:.0f} ms")
-            #for i, data_sample in enumerate(batch_data_samples):
-            #    data_sample.pred_pts_seg = results_list[i]
-            #    data_sample.pred_pts_seg['originids'] = originids
-                #data_sample.originids = originids
-            if last_results is not None and len(last_results)==len(batch_data_samples):                 # 本帧里至少有一个 region 得到了结果
+            if last_results is not None and len(last_results)==len(batch_data_samples):
                 for i, data_sample in enumerate(batch_data_samples):
                     data_sample.pred_pts_seg = last_results[i]
                     data_sample.pred_pts_seg['originids'] = last_originids
-            else:                                      
+            else:
                 for data_sample in batch_data_samples:
                     data_sample.pred_pts_seg = None
             return batch_data_samples

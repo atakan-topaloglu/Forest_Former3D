@@ -85,6 +85,12 @@ class UnifiedSegMetric(SegMetric):
         all_mean_weighted_cov_global = [[] for _ in range(NUM_CLASSES_BINARY)]
 
         for eval_ann, single_pred_results in results:
+            # Align GT with prediction when pred is a subset (from original ForestFormer)
+            # When region-based predict returns last region's pc3, originids maps to original points
+            if 'originids' in single_pred_results:
+                eval_ann['pts_semantic_mask'] = eval_ann['pts_semantic_mask'][single_pred_results['originids']]
+                eval_ann['pts_instance_mask'] = eval_ann['pts_instance_mask'][single_pred_results['originids']]
+
             # Get GT and Pred labels, and shift them by 1 (0 is ignored)
             sem_gt_i = eval_ann['pts_semantic_mask'] + 1
             sem_pre_i = single_pred_results['pts_semantic_mask'][1] + 1
